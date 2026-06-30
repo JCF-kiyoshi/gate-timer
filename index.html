@@ -99,36 +99,30 @@
   #log{flex:1; overflow-y:auto; padding:10px 10px 90px;}
   .card{
     background:var(--panel); border:1px solid var(--edge); border-radius:14px;
-    padding:12px; margin-bottom:10px; display:flex; gap:10px;
+    padding:12px; margin-bottom:10px; display:flex; gap:10px; align-items:center;
   }
   .card.sent{border-color:#1c3a2e;}
   .card.error{border-color:#3a1c1c;}
-  .thumbs{flex:0 0 auto; display:flex; flex-direction:column; gap:4px;}
-  .thumbRow{display:flex; gap:4px;}
-  .thumbRow img{
+  .thumbs{flex:0 0 auto; display:flex; flex-wrap:wrap; gap:4px; width:116px;}
+  .thumbs img{
     width:54px; height:54px; object-fit:cover; border-radius:8px; border:1px solid var(--edge);
   }
-  .thumbRow img.sel{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent);}
   .info{flex:1; display:flex; flex-direction:column; gap:6px; min-width:0;}
-  .timeRow{display:flex; justify-content:space-between; align-items:baseline;}
-  .timeRow .t{font-family:var(--mono); font-size:17px; font-weight:700;}
-  .statusTag{font-size:11px; padding:2px 8px; border-radius:999px; font-weight:700;}
+  .timeRow{display:flex; justify-content:space-between; align-items:baseline; gap:8px;}
+  .timeRow .t{font-family:var(--mono); font-size:18px; font-weight:700;}
+  .statusTag{font-size:11px; padding:3px 9px; border-radius:999px; font-weight:700; flex:0 0 auto;}
+  .statusTag.collecting{background:#2a2412; color:var(--warn);}
   .statusTag.pending{background:#2a2412; color:var(--warn);}
   .statusTag.sending{background:#142b33; color:#5fc7e0;}
   .statusTag.sent{background:#11301f; color:var(--ok);}
   .statusTag.error{background:#321414; color:var(--err);}
-  .bibRow{display:flex; gap:6px;}
-  .bibRow input{
-    flex:1; min-width:0; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
-    padding:9px 10px; border-radius:9px; font-size:18px; font-family:var(--mono);
-  }
-  .bibRow button{
-    background:var(--accent); color:#1a1300; border:none; padding:0 16px; border-radius:9px;
-    font-weight:700; font-size:14px;
-  }
-  .bibRow button:disabled{background:var(--edge); color:var(--sub);}
   .errMsg{font-size:11px; color:var(--err);}
-  .delBtn{background:none; border:none; color:var(--sub); font-size:11px; align-self:flex-end;}
+  .actionRow{display:flex; gap:8px; align-items:center;}
+  .actionRow button{
+    background:var(--accent); color:#1a1300; border:none; padding:7px 14px; border-radius:9px;
+    font-weight:700; font-size:12px;
+  }
+  .delBtn{background:none !important; border:none; color:var(--sub) !important; font-size:11px; padding:4px 0 !important;}
 
   /* ---------- 設定パネル ---------- */
   #settings{
@@ -166,7 +160,7 @@
   <!-- ===== セットアップ画面 ===== -->
   <div id="setup">
     <h1>ゲートタイマー</h1>
-    <div class="sub">カヌースラローム / ワイルドウォーター 通過検知タイマー</div>
+    <div class="sub">カヌースラローム / ワイルドウォーター 通過検知タイマー（タイム計測専用）</div>
 
     <div class="field">
       <label>地点 (この端末の役割)</label>
@@ -198,7 +192,7 @@
     </div>
 
     <button class="startBtn" id="startBtn">カメラを起動して開始</button>
-    <div class="smallNote" style="margin-top:10px;">※ 設定は端末に保存され、次回以降は自動入力されます。</div>
+    <div class="smallNote" style="margin-top:10px;">※ 設定は端末に保存され、次回以降は自動入力されます。<br>※ Bib番号の入力は別アプリ（Bib入力アプリ）で行います。</div>
   </div>
 
   <!-- ===== メイン画面 ===== -->
@@ -258,11 +252,11 @@
 
 /* ---------------- 状態管理 ---------------- */
 const LS_KEY = "gateTimerSettings_v1";
-const LS_LOG = "gateTimerLog_v1";
+const LS_LOG = "gateTimerLog_v2";
 
 // ↓↓↓ ここにデプロイしたGAS Web App URLを直接書き込んでください ↓↓↓
 // 例: "https://script.google.com/macros/s/AKfycb.../exec"
-const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzzxsLhERk5IQFUyJjaN_9UP15Btd5n22VOt_gBh_1eXMkF4Kgiw_am3WW-p9-IBD-rFQ/exec";
+const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzTjWJaOiYgeYnxO2X9eqX7njEIaZs9HJHmtTTsjK3ZF4NcGuNVvauVH0WRrIP6XYLmEA/exec";
 // ↑↑↑ ここまで ↑↑↑
 
 let settings = Object.assign({
@@ -525,22 +519,26 @@ function beep(){
   if(navigator.vibrate) navigator.vibrate(80);
 }
 
+function genRecordId(){
+  return "r" + Date.now() + "_" + (++recIdSeed).toString(36) + "_" + Math.random().toString(36).slice(2,6);
+}
+
 function onDetect(){
   const t = new Date();
   flash(); beep();
-  const id = "r" + (++recIdSeed);
-  // バッファ済みの直近フレーム + 今後0.6秒分を追加収集
+  const id = genRecordId();
+  // バッファ済みの直近フレーム + 今後0.6秒分を追加収集してから送信する
   const photosBefore = frameBuf.slice(-4).map(f=>f.url);
   const rec = {
     id, mode:settings.mode, device:settings.deviceName, race:settings.raceName,
     ts: t.getTime(), tsLabel: fmtTime(t),
-    bib:"", status:"pending", err:"", photos: photosBefore, selPhoto:0
+    status:"collecting", err:"", photos: photosBefore
   };
   records.unshift(rec);
   saveLog();
   renderLog();
 
-  // 検知後の追加フレームを少し待って取得
+  // 検知後の追加フレームを少し待って取得してから自動送信
   let collected = 0;
   const grabber = setInterval(()=>{
     if(frameBuf.length){
@@ -548,7 +546,12 @@ function onDetect(){
       if(rec.photos.length > 8) rec.photos.shift();
     }
     collected++;
-    if(collected>=4){ clearInterval(grabber); saveLog(); renderLog(); }
+    if(collected>=4){
+      clearInterval(grabber);
+      rec.status = "pending";
+      saveLog(); renderLog();
+      sendRecord(rec);
+    }
   }, 160);
 }
 
@@ -573,16 +576,11 @@ function renderLog(){
 
     const thumbs = document.createElement("div");
     thumbs.className = "thumbs";
-    const row1 = document.createElement("div"); row1.className = "thumbRow";
-    const row2 = document.createElement("div"); row2.className = "thumbRow";
-    rec.photos.forEach((url, idx)=>{
+    rec.photos.slice(0,4).forEach(url=>{
       const img = document.createElement("img");
       img.src = url;
-      if(idx === rec.selPhoto) img.classList.add("sel");
-      img.onclick = ()=>{ rec.selPhoto = idx; renderLog(); };
-      (idx<4?row1:row2).appendChild(img);
+      thumbs.appendChild(img);
     });
-    thumbs.appendChild(row1); if(rec.photos.length>4) thumbs.appendChild(row2);
 
     const info = document.createElement("div");
     info.className = "info";
@@ -592,43 +590,41 @@ function renderLog(){
       <span class="statusTag ${rec.status}">${statusLabel(rec.status)}</span>`;
     info.appendChild(timeRow);
 
-    const bibRow = document.createElement("div"); bibRow.className = "bibRow";
-    const inp = document.createElement("input");
-    inp.type = "tel"; inp.inputMode = "numeric"; inp.placeholder = "Bib番号";
-    inp.value = rec.bib;
-    inp.oninput = ()=>{ rec.bib = inp.value.replace(/[^0-9]/g,""); inp.value = rec.bib; saveLog(); btn.disabled = !rec.bib; };
-    const btn = document.createElement("button");
-    btn.textContent = rec.status==="error" ? "再送信" : "送信";
-    btn.disabled = !rec.bib;
-    btn.onclick = ()=> sendRecord(rec);
-    bibRow.appendChild(inp); bibRow.appendChild(btn);
-    info.appendChild(bibRow);
-
     if(rec.status==="error" && rec.err){
       const e = document.createElement("div"); e.className = "errMsg"; e.textContent = rec.err;
       info.appendChild(e);
     }
 
+    const actionRow = document.createElement("div"); actionRow.className = "actionRow";
+    if(rec.status==="error"){
+      const btn = document.createElement("button");
+      btn.textContent = "再送信";
+      btn.onclick = ()=> sendRecord(rec);
+      actionRow.appendChild(btn);
+    }
     const del = document.createElement("button"); del.className="delBtn"; del.textContent="削除";
-    del.onclick = ()=>{ if(confirm("この記録を削除しますか？")){ records = records.filter(r=>r.id!==rec.id); saveLog(); renderLog(); } };
-    info.appendChild(del);
+    del.onclick = ()=>{ if(confirm("この記録を削除しますか？（送信済みでもアプリ内の表示のみ消えます）")){ records = records.filter(r=>r.id!==rec.id); saveLog(); renderLog(); } };
+    actionRow.appendChild(del);
+    info.appendChild(actionRow);
 
     card.appendChild(thumbs); card.appendChild(info);
     els.log.appendChild(card);
   });
 }
 function statusLabel(s){
-  return {pending:"未送信", sending:"送信中", sent:"送信済", error:"失敗"}[s] || s;
+  return {collecting:"撮影中", pending:"送信待ち", sending:"送信中", sent:"送信済", error:"失敗"}[s] || s;
 }
 
 async function sendRecord(rec){
-  if(!rec.bib){ return; }
-  if(!settings.gasUrl){ rec.status="error"; rec.err="GAS URLが未設定です（設定画面から再起動して入力してください）"; renderLog(); return; }
+  if(!settings.gasUrl){ rec.status="error"; rec.err="GAS URLが未設定です（設定画面から入力してください）"; renderLog(); return; }
   rec.status = "sending"; rec.err=""; saveLog(); renderLog();
   const payload = {
+    action: "create",
+    recordId: rec.id,
     mode: rec.mode, device: rec.device, race: rec.race,
-    bib: rec.bib, timestamp: new Date(rec.ts).toISOString(),
-    timestampLabel: rec.tsLabel, deviceId: settings.deviceId
+    timestamp: new Date(rec.ts).toISOString(),
+    timestampLabel: rec.tsLabel, deviceId: settings.deviceId,
+    photos: rec.photos
   };
   try{
     const res = await fetch(settings.gasUrl, {
@@ -649,11 +645,11 @@ async function sendRecord(rec){
 
 // オンライン復帰時にエラー分を自動再送信
 window.addEventListener("online", ()=>{
-  records.filter(r=>r.status==="error" && r.bib).forEach(sendRecord);
+  records.filter(r=>r.status==="error").forEach(sendRecord);
 });
 setInterval(()=>{
   if(navigator.onLine){
-    records.filter(r=>r.status==="error" && r.bib).forEach(sendRecord);
+    records.filter(r=>r.status==="error").forEach(sendRecord);
   }
 }, 15000);
 
