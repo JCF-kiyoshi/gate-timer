@@ -189,7 +189,7 @@
 
     <div class="field">
       <label>GAS Web App URL (スプレッドシート書き込み先)</label>
-      <input type="url" id="gasUrl" placeholder="https://script.google.com/macros/s/AKfycbzzxsLhERk5IQFUyJjaN_9UP15Btd5n22VOt_gBh_1eXMkF4Kgiw_am3WW-p9-IBD-rFQ/exec">
+      <input type="url" id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec">
     </div>
 
     <div class="field">
@@ -249,9 +249,20 @@
 const LS_KEY = "gateTimerSettings_v1";
 const LS_LOG = "gateTimerLog_v1";
 
+// ↓↓↓ ここにデプロイしたGAS Web App URLを直接書き込んでください ↓↓↓
+// 例: "https://script.google.com/macros/s/AKfycb.../exec"
+const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzzxsLhERk5IQFUyJjaN_9UP15Btd5n22VOt_gBh_1eXMkF4Kgiw_am3WW-p9-IBD-rFQ/exec";
+// ↑↑↑ ここまで ↑↑↑
+
 let settings = Object.assign({
   mode:"START", raceName:"", deviceName:"", gasUrl:"", deviceId:""
 }, JSON.parse(localStorage.getItem(LS_KEY) || "{}"));
+
+// 端末にまだ保存されたURLが無ければ、上のDEFAULT_GAS_URLを初期値として使う
+if(!settings.gasUrl && DEFAULT_GAS_URL){
+  settings.gasUrl = DEFAULT_GAS_URL;
+  localStorage.setItem(LS_KEY, JSON.stringify(settings));
+}
 
 let detectCfg = Object.assign({ sens:16, cool:8, band:6 },
   JSON.parse(localStorage.getItem("gateTimerCfg_v1") || "{}"));
