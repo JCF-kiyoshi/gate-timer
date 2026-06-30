@@ -61,7 +61,7 @@
 
   /* ---------- メイン: カメラ ---------- */
   #camWrap{position:relative; flex:0 0 46%; min-height:240px; background:#000; overflow:hidden;}
-  video{position:absolute; inset:0; width:100%; height:100%; object-fit:cover;}
+  video{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform-origin:center center; transition:transform .15s ease-out;}
   #overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
   #hud{
     position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between;
@@ -236,7 +236,18 @@
     <input type="range" id="cool" min="3" max="30" step="1">
     <div class="row" style="margin-top:18px;"><span>判定ライン幅</span><span class="val" id="bandVal"></span></div>
     <input type="range" id="band" min="2" max="20" step="1">
-    <div class="smallNote">通過する艇がラインを横切った際の画像変化量を見て検知しています。背景がざわつく（観客の動き・反射）場では感度を上げて（数値を大きく）誤検知を抑えてください。</div>
+
+    <div class="row" style="margin-top:18px;"><span>ズーム（表示のみ・判定には影響しません）</span><span class="val" id="zoomVal"></span></div>
+    <input type="range" id="zoom" min="10" max="30" step="1">
+
+    <div class="row" style="margin-top:18px;"><span>判定範囲・上端（水面など下側を除外）</span><span class="val" id="roiTopVal"></span></div>
+    <input type="range" id="roiTop" min="0" max="80" step="2">
+    <div class="row" style="margin-top:10px;"><span>判定範囲・下端</span><span class="val" id="roiBotVal"></span></div>
+    <input type="range" id="roiBot" min="20" max="100" step="2">
+
+    <div class="row" style="margin-top:18px;"><span>ノイズ除去（連続フレーム確認）</span><span class="val" id="confVal"></span></div>
+    <input type="range" id="conf" min="1" max="5" step="1">
+    <div class="smallNote">水面の波・反射が映り込む場合は「判定範囲」の下端を上げてゲート付近だけに絞ると効果的です（オレンジの帯がプレビューに反映されます）。それでも誤検知する場合は「ノイズ除去」の値を上げてください（値が大きいほど短い揺らぎを無視しますが、検知までの反応がわずかに遅くなります）。</div>
     <button id="closeSettings">閉じる</button>
   </div>
 </div>
@@ -264,8 +275,9 @@ if(!settings.gasUrl && DEFAULT_GAS_URL){
   localStorage.setItem(LS_KEY, JSON.stringify(settings));
 }
 
-let detectCfg = Object.assign({ sens:16, cool:8, band:6 },
+let detectCfg = Object.assign({ sens:16, cool:8, band:6, zoom:10, roiTop:0, roiBot:100, conf:2 },
   JSON.parse(localStorage.getItem("gateTimerCfg_v1") || "{}"));
+let overThreshCount = 0;
 
 let records = JSON.parse(localStorage.getItem(LS_LOG) || "[]");
 let armed = true;
@@ -279,7 +291,7 @@ const els = {};
  "log","cnt","pendingCnt","placeLabel","flashBox",
  "setup","modeSeg","raceName","deviceName","gasUrl","camPick","startBtn",
  "settings","settingsPanel","sens","sensVal","cool","coolVal","band","bandVal","closeSettings",
- "gasUrlEdit","gasUrlStatus"
+ "gasUrlEdit","gasUrlStatus","zoom","zoomVal","roiTop","roiTopVal","roiBot","roiBotVal","conf","confVal"
 ].forEach(id=> els[id]=document.getElementById(id));
 
 if(!settings.deviceId){ settings.deviceId = "dev_" + Math.random().toString(36).slice(2,9); }
@@ -373,6 +385,7 @@ async function startCamera(){
   }
   video.srcObject = videoStream;
   await video.play().catch(()=>{});
+  applyZoom();
   resizeOverlay();
   window.addEventListener("resize", resizeOverlay);
   requestAnimationFrame(loop);
@@ -392,12 +405,22 @@ function drawOverlayLine(){
   const bandFrac = detectCfg.band/100;
   const bw = w * bandFrac;
   const cx = w/2;
-  octx.fillStyle = "rgba(255,180,0,0.10)";
-  octx.fillRect(cx-bw/2, 0, bw, h);
+  const y0 = h * (detectCfg.roiTop/100);
+  const y1 = h * (detectCfg.roiBot/100);
+  // ROI外（無視される領域）を暗くグレーアウト
+  octx.fillStyle = "rgba(0,0,0,0.35)";
+  if(y0>0) octx.fillRect(cx-bw/2, 0, bw, y0);
+  if(y1<h) octx.fillRect(cx-bw/2, y1, bw, h-y1);
+  // ROI内の判定帯
+  octx.fillStyle = "rgba(255,180,0,0.14)";
+  octx.fillRect(cx-bw/2, y0, bw, y1-y0);
   octx.strokeStyle = "rgba(255,180,0,0.9)";
   octx.lineWidth = 2;
   octx.beginPath();
-  octx.moveTo(cx,0); octx.lineTo(cx,h); octx.stroke();
+  octx.moveTo(cx,y0); octx.lineTo(cx,y1); octx.stroke();
+}
+function applyZoom(){
+  video.style.transform = "scale(" + (detectCfg.zoom/10) + ")";
 }
 
 function setLive(on){
@@ -436,16 +459,19 @@ function analyzeFrame(){
   const bandFrac = detectCfg.band/100;
   const bw = Math.max(2, Math.round(w*bandFrac));
   const x0 = Math.round(w/2 - bw/2);
-  const img = actx.getImageData(x0, 0, bw, h).data;
+  const y0 = Math.round(h * (detectCfg.roiTop/100));
+  const y1 = Math.max(y0+1, Math.round(h * (detectCfg.roiBot/100)));
+  const rh = y1 - y0;
+  const img = actx.getImageData(x0, y0, bw, rh).data;
 
   // グレースケール配列を作成
-  const gray = new Uint8ClampedArray(bw*h);
+  const gray = new Uint8ClampedArray(bw*rh);
   for(let i=0, p=0; i<img.length; i+=4, p++){
     gray[p] = (img[i]*0.299 + img[i+1]*0.587 + img[i+2]*0.114);
   }
 
   if(!baseline || baseline.length !== gray.length){
-    baseline = gray; return;
+    baseline = gray; overThreshCount = 0; return;
   }
 
   let diffSum = 0;
@@ -465,8 +491,15 @@ function analyzeFrame(){
   setCooldownIndicator(inCooldown);
 
   const threshold = detectCfg.sens; // 小さいほど敏感
-  if(armed && !inCooldown && avgDiff > threshold){
+  if(inCooldown || avgDiff <= threshold){
+    overThreshCount = 0;
+  }else{
+    overThreshCount++;
+  }
+
+  if(armed && !inCooldown && overThreshCount >= detectCfg.conf){
     lastDetectAt = now;
+    overThreshCount = 0;
     baseline = gray.slice(); // 検知の瞬間の映像にbaselineを即座にスナップし、再開直後の誤検知を防ぐ
     onDetect();
   }
@@ -669,13 +702,31 @@ function paintCfg(){
   els.sens.value = detectCfg.sens; els.sensVal.textContent = detectCfg.sens;
   els.cool.value = detectCfg.cool; els.coolVal.textContent = detectCfg.cool + "秒";
   els.band.value = detectCfg.band; els.bandVal.textContent = detectCfg.band + "%";
+  els.zoom.value = detectCfg.zoom; els.zoomVal.textContent = (detectCfg.zoom/10).toFixed(1) + "倍";
+  els.roiTop.value = detectCfg.roiTop; els.roiTopVal.textContent = detectCfg.roiTop + "%";
+  els.roiBot.value = detectCfg.roiBot; els.roiBotVal.textContent = detectCfg.roiBot + "%";
+  els.conf.value = detectCfg.conf; els.confVal.textContent = detectCfg.conf + "フレーム";
+  applyZoom();
 }
-[["sens",v=>v],["cool",v=>v+"秒"],["band",v=>v+"%"]].forEach(([key,fmt])=>{
+[
+  ["sens", v=>v],
+  ["cool", v=>v+"秒"],
+  ["band", v=>v+"%"],
+  ["zoom", v=>(v/10).toFixed(1)+"倍"],
+  ["roiTop", v=>v+"%"],
+  ["roiBot", v=>v+"%"],
+  ["conf", v=>v+"フレーム"]
+].forEach(([key,fmt])=>{
   els[key].oninput = ()=>{
-    detectCfg[key] = Number(els[key].value);
-    els[key+"Val"].textContent = fmt(detectCfg[key]);
+    let v = Number(els[key].value);
+    // 上端が下端を超えないよう簡易ガード
+    if(key==="roiTop" && v >= detectCfg.roiBot) v = detectCfg.roiBot - 2;
+    if(key==="roiBot" && v <= detectCfg.roiTop) v = detectCfg.roiTop + 2;
+    detectCfg[key] = v;
+    els[key+"Val"].textContent = fmt(v);
     localStorage.setItem("gateTimerCfg_v1", JSON.stringify(detectCfg));
-    if(key==="band") drawOverlayLine();
+    if(key==="band" || key==="roiTop" || key==="roiBot") drawOverlayLine();
+    if(key==="zoom") applyZoom();
   };
 });
 paintCfg();
