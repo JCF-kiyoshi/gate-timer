@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>ゲートタイマー / Photo-Finish</title>
+<style>
+  :root{
+    --bg:#0a0e0f;
+    --panel:#11171a;
+    --panel2:#161e22;
+    --line:#26323700;
+    --edge:#1f2b2f;
+    --accent:#ffb400;
+    --accent-dim:#5a4416;
+    --ok:#34d399;
+    --warn:#f59e0b;
+    --err:#ef4444;
+    --text:#eef3f2;
+    --sub:#7d9090;
+    --mono:'SF Mono','Menlo','Consolas',monospace;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sans-serif;
+    height:100%; overflow:hidden;
+  }
+  #app{height:100vh; display:flex; flex-direction:column;}
+
+  /* ---------- セットアップ画面 ---------- */
+  #setup{
+    position:fixed; inset:0; background:var(--bg); z-index:50;
+    display:flex; flex-direction:column; padding:24px 20px 32px;
+    overflow-y:auto;
+  }
+  #setup h1{font-size:22px; letter-spacing:.04em; margin:6px 0 2px; font-weight:700;}
+  #setup .sub{color:var(--sub); font-size:13px; margin-bottom:22px;}
+  .field{margin-bottom:18px;}
+  .field label{display:block; font-size:12px; color:var(--sub); margin-bottom:6px; letter-spacing:.03em;}
+  .field input[type=text], .field input[type=url], .field input[type=number]{
+    width:100%; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+    padding:13px 12px; border-radius:10px; font-size:16px; outline:none;
+  }
+  .seg{display:flex; gap:8px;}
+  .seg button{
+    flex:1; padding:14px 8px; border-radius:10px; border:1px solid var(--edge);
+    background:var(--panel2); color:var(--sub); font-size:15px; font-weight:600;
+  }
+  .seg button.on{background:var(--accent-dim); color:var(--accent); border-color:var(--accent);}
+  #setup .startBtn{
+    margin-top:auto; background:var(--accent); color:#1a1300; border:none;
+    padding:17px; border-radius:12px; font-size:17px; font-weight:700; letter-spacing:.03em;
+  }
+  #camPick{display:flex; flex-direction:column; gap:8px;}
+  #camPick button{
+    text-align:left; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+    padding:12px; border-radius:10px; font-size:14px;
+  }
+  #camPick button.on{border-color:var(--accent); color:var(--accent);}
+
+  /* ---------- メイン: カメラ ---------- */
+  #camWrap{position:relative; flex:0 0 46%; min-height:240px; background:#000; overflow:hidden;}
+  video{position:absolute; inset:0; width:100%; height:100%; object-fit:cover;}
+  #overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
+  #hud{
+    position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between;
+    align-items:flex-start; padding:10px 12px; pointer-events:none;
+  }
+  .pill{
+    background:rgba(10,14,15,.72); border:1px solid var(--edge); border-radius:999px;
+    padding:6px 12px; font-size:12px; display:flex; align-items:center; gap:6px;
+    pointer-events:auto;
+  }
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--sub); flex:0 0 auto;}
+  .dot.live{background:var(--ok); box-shadow:0 0 8px var(--ok);}
+  .dot.off{background:var(--sub);}
+  .dot.cool{background:var(--warn);}
+  #clock{font-family:var(--mono); font-size:15px; letter-spacing:.02em;}
+  #flashBox{position:absolute; inset:0; background:var(--accent); opacity:0; pointer-events:none;}
+  #menuBtn{
+    position:absolute; bottom:10px; right:10px; width:42px; height:42px; border-radius:50%;
+    background:rgba(10,14,15,.72); border:1px solid var(--edge); color:var(--text); font-size:18px;
+    pointer-events:auto; display:flex; align-items:center; justify-content:center;
+  }
+  #armBtn{
+    position:absolute; bottom:10px; left:10px; padding:9px 16px; border-radius:999px;
+    background:rgba(10,14,15,.72); border:1px solid var(--edge); color:var(--text); font-size:13px;
+    font-weight:700; pointer-events:auto;
+  }
+  #armBtn.armed{background:var(--ok); color:#04231a; border-color:var(--ok);}
+
+  /* ---------- ログリスト ---------- */
+  #logHead{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 14px 8px; border-bottom:1px solid var(--edge); flex:0 0 auto;
+  }
+  #logHead .cnt{color:var(--sub); font-size:12px;}
+  #log{flex:1; overflow-y:auto; padding:10px 10px 90px;}
+  .card{
+    background:var(--panel); border:1px solid var(--edge); border-radius:14px;
+    padding:12px; margin-bottom:10px; display:flex; gap:10px;
+  }
+  .card.sent{border-color:#1c3a2e;}
+  .card.error{border-color:#3a1c1c;}
+  .thumbs{flex:0 0 auto; display:flex; flex-direction:column; gap:4px;}
+  .thumbRow{display:flex; gap:4px;}
+  .thumbRow img{
+    width:54px; height:54px; object-fit:cover; border-radius:8px; border:1px solid var(--edge);
+  }
+  .thumbRow img.sel{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent);}
+  .info{flex:1; display:flex; flex-direction:column; gap:6px; min-width:0;}
+  .timeRow{display:flex; justify-content:space-between; align-items:baseline;}
+  .timeRow .t{font-family:var(--mono); font-size:17px; font-weight:700;}
+  .statusTag{font-size:11px; padding:2px 8px; border-radius:999px; font-weight:700;}
+  .statusTag.pending{background:#2a2412; color:var(--warn);}
+  .statusTag.sending{background:#142b33; color:#5fc7e0;}
+  .statusTag.sent{background:#11301f; color:var(--ok);}
+  .statusTag.error{background:#321414; color:var(--err);}
+  .bibRow{display:flex; gap:6px;}
+  .bibRow input{
+    flex:1; min-width:0; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+    padding:9px 10px; border-radius:9px; font-size:18px; font-family:var(--mono);
+  }
+  .bibRow button{
+    background:var(--accent); color:#1a1300; border:none; padding:0 16px; border-radius:9px;
+    font-weight:700; font-size:14px;
+  }
+  .bibRow button:disabled{background:var(--edge); color:var(--sub);}
+  .errMsg{font-size:11px; color:var(--err);}
+  .delBtn{background:none; border:none; color:var(--sub); font-size:11px; align-self:flex-end;}
+
+  /* ---------- 設定パネル ---------- */
+  #settings{
+    position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:60;
+    display:none; align-items:flex-end;
+  }
+  #settings.open{display:flex;}
+  #settingsPanel{
+    width:100%; max-height:82vh; overflow-y:auto; background:var(--panel);
+    border-radius:18px 18px 0 0; padding:18px 18px 28px; border-top:1px solid var(--edge);
+  }
+  #settingsPanel h2{font-size:16px; margin:0 0 14px;}
+  .row{display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; font-size:13px; color:var(--sub);}
+  .row .val{color:var(--text); font-family:var(--mono);}
+  input[type=range]{width:100%; accent-color:var(--accent);}
+  #closeSettings{
+    width:100%; padding:13px; margin-top:6px; border-radius:10px; border:1px solid var(--edge);
+    background:var(--panel2); color:var(--text); font-size:14px;
+  }
+  .smallNote{font-size:11px; color:var(--sub); line-height:1.6; margin-top:4px;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ===== セットアップ画面 ===== -->
+  <div id="setup">
+    <h1>ゲートタイマー</h1>
+    <div class="sub">カヌースラローム / ワイルドウォーター 通過検知タイマー</div>
+
+    <div class="field">
+      <label>地点 (この端末の役割)</label>
+      <div class="seg" id="modeSeg">
+        <button data-v="START" class="on">スタート</button>
+        <button data-v="FINISH">フィニッシュ</button>
+        <button data-v="OTHER">その他</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>大会・レース名 (記録に付与されます)</label>
+      <input type="text" id="raceName" placeholder="例: 2026年 国体予選 スラローム">
+    </div>
+
+    <div class="field">
+      <label>この端末の名前</label>
+      <input type="text" id="deviceName" placeholder="例: フィニッシュ-1">
+    </div>
+
+    <div class="field">
+      <label>GAS Web App URL (スプレッドシート書き込み先)</label>
+      <input type="url" id="gasUrl" placeholder="https://script.google.com/macros/s/AKfycbzzxsLhERk5IQFUyJjaN_9UP15Btd5n22VOt_gBh_1eXMkF4Kgiw_am3WW-p9-IBD-rFQ/exec">
+    </div>
+
+    <div class="field">
+      <label>使用カメラ</label>
+      <div id="camPick"><div class="smallNote">カメラへのアクセスを許可すると一覧が表示されます</div></div>
+    </div>
+
+    <button class="startBtn" id="startBtn">カメラを起動して開始</button>
+    <div class="smallNote" style="margin-top:10px;">※ 設定は端末に保存され、次回以降は自動入力されます。</div>
+  </div>
+
+  <!-- ===== メイン画面 ===== -->
+  <div id="camWrap">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+    <div id="flashBox"></div>
+    <div id="hud">
+      <div class="pill"><span class="dot off" id="liveDot"></span><span id="liveLabel">準備中</span></div>
+      <div class="pill"><span id="clock" class="">--:--:--.---</span></div>
+    </div>
+    <button id="armBtn" class="armed">監視ON</button>
+    <button id="menuBtn">⚙</button>
+  </div>
+
+  <div id="logHead">
+    <div id="placeLabel" style="font-weight:700; font-size:14px;">スタート</div>
+    <div class="cnt"><span id="cnt">0</span> 件 ・ 未送信 <span id="pendingCnt">0</span></div>
+  </div>
+  <div id="log"></div>
+</div>
+
+<!-- ===== 設定パネル ===== -->
+<div id="settings">
+  <div id="settingsPanel">
+    <h2>検知設定</h2>
+    <div class="row"><span>検知感度（低いほど敏感）</span><span class="val" id="sensVal"></span></div>
+    <input type="range" id="sens" min="4" max="60" step="1">
+    <div class="row" style="margin-top:18px;"><span>クールダウン（連続検知防止）</span><span class="val" id="coolVal"></span></div>
+    <input type="range" id="cool" min="3" max="30" step="1">
+    <div class="row" style="margin-top:18px;"><span>判定ライン幅</span><span class="val" id="bandVal"></span></div>
+    <input type="range" id="band" min="2" max="20" step="1">
+    <div class="smallNote">通過する艇がラインを横切った際の画像変化量を見て検知しています。背景がざわつく（観客の動き・反射）場では感度を上げて（数値を大きく）誤検知を抑えてください。</div>
+    <button id="closeSettings">閉じる</button>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ---------------- 状態管理 ---------------- */
+const LS_KEY = "gateTimerSettings_v1";
+const LS_LOG = "gateTimerLog_v1";
+
+let settings = Object.assign({
+  mode:"START", raceName:"", deviceName:"", gasUrl:"", deviceId:""
+}, JSON.parse(localStorage.getItem(LS_KEY) || "{}"));
+
+let detectCfg = Object.assign({ sens:16, cool:8, band:6 },
+  JSON.parse(localStorage.getItem("gateTimerCfg_v1") || "{}"));
+
+let records = JSON.parse(localStorage.getItem(LS_LOG) || "[]");
+let armed = true;
+let lastDetectAt = 0;
+let baseline = null; // 直前フレームのROIグレースケール配列
+let videoStream = null;
+let recIdSeed = Date.now();
+
+const els = {};
+["video","overlay","clock","liveDot","liveLabel","armBtn","menuBtn",
+ "log","cnt","pendingCnt","placeLabel","flashBox",
+ "setup","modeSeg","raceName","deviceName","gasUrl","camPick","startBtn",
+ "settings","settingsPanel","sens","sensVal","cool","coolVal","band","bandVal","closeSettings"
+].forEach(id=> els[id]=document.getElementById(id));
+
+if(!settings.deviceId){ settings.deviceId = "dev_" + Math.random().toString(36).slice(2,9); }
+
+/* ---------------- セットアップ画面 ---------------- */
+function paintSetup(){
+  els.raceName.value = settings.raceName;
+  els.deviceName.value = settings.deviceName;
+  els.gasUrl.value = settings.gasUrl;
+  [...els.modeSeg.children].forEach(b=> b.classList.toggle("on", b.dataset.v===settings.mode));
+}
+els.modeSeg.addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  settings.mode = b.dataset.v;
+  [...els.modeSeg.children].forEach(x=> x.classList.toggle("on", x===b));
+});
+
+let availableCams = [];
+async function listCams(){
+  try{
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    availableCams = devs.filter(d=>d.kind==="videoinput");
+    els.camPick.innerHTML = "";
+    if(availableCams.length===0){
+      els.camPick.innerHTML = '<div class="smallNote">カメラが見つかりません。一度カメラ許可ダイアログを許可してください。</div>';
+      return;
+    }
+    availableCams.forEach((c,i)=>{
+      const b = document.createElement("button");
+      b.textContent = c.label || ("カメラ " + (i+1));
+      b.dataset.id = c.deviceId;
+      if(c.deviceId === settings.camId || (!settings.camId && /back|rear|environment/i.test(c.label))) {
+        b.classList.add("on"); settings.camId = c.deviceId;
+      }
+      b.onclick = ()=>{
+        settings.camId = c.deviceId;
+        [...els.camPick.children].forEach(x=>x.classList.remove("on"));
+        b.classList.add("on");
+      };
+      els.camPick.appendChild(b);
+    });
+  }catch(e){ /* 権限なし */ }
+}
+
+(async ()=>{
+  try{
+    const tmp = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}, audio:false});
+    tmp.getTracks().forEach(t=>t.stop());
+  }catch(e){}
+  listCams();
+})();
+
+els.startBtn.onclick = async ()=>{
+  settings.raceName = els.raceName.value.trim();
+  settings.deviceName = els.deviceName.value.trim() || (settings.mode==="START"?"スタート":"フィニッシュ");
+  settings.gasUrl = els.gasUrl.value.trim();
+  localStorage.setItem(LS_KEY, JSON.stringify(settings));
+  els.setup.style.display = "none";
+  els.placeLabel.textContent = settings.deviceName;
+  await startCamera();
+};
+paintSetup();
+
+/* ---------------- カメラ & 検知 ---------------- */
+const video = els.video;
+const overlay = els.overlay;
+const octx = overlay.getContext("2d");
+
+// 解析用の縮小キャンバス
+const ac = document.createElement("canvas");
+ac.width = 240; ac.height = 135;
+const actx = ac.getContext("2d", {willReadFrequently:true});
+
+// 直近フレームのバッファ（サムネイル用、低解像度dataURL）
+const FRAME_INTERVAL_MS = 110;
+const BUFFER_MS = 1600;
+let frameBuf = []; // {t, dataUrl}
+const sc = document.createElement("canvas");
+sc.width = 320; sc.height = 180;
+const sctx = sc.getContext("2d");
+
+async function startCamera(){
+  const constraints = { audio:false, video: settings.camId
+    ? {deviceId:{exact:settings.camId}}
+    : {facingMode:{ideal:"environment"}} };
+  try{
+    videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+  }catch(e){
+    alert("カメラを起動できませんでした: " + e.message);
+    return;
+  }
+  video.srcObject = videoStream;
+  await video.play().catch(()=>{});
+  resizeOverlay();
+  window.addEventListener("resize", resizeOverlay);
+  requestAnimationFrame(loop);
+  setInterval(captureThumbFrame, FRAME_INTERVAL_MS);
+  setInterval(updateClock, 67);
+  setLive(true);
+}
+
+function resizeOverlay(){
+  const r = video.getBoundingClientRect();
+  overlay.width = r.width; overlay.height = r.height;
+  drawOverlayLine();
+}
+function drawOverlayLine(){
+  const w = overlay.width, h = overlay.height;
+  octx.clearRect(0,0,w,h);
+  const bandFrac = detectCfg.band/100;
+  const bw = w * bandFrac;
+  const cx = w/2;
+  octx.fillStyle = "rgba(255,180,0,0.10)";
+  octx.fillRect(cx-bw/2, 0, bw, h);
+  octx.strokeStyle = "rgba(255,180,0,0.9)";
+  octx.lineWidth = 2;
+  octx.beginPath();
+  octx.moveTo(cx,0); octx.lineTo(cx,h); octx.stroke();
+}
+
+function setLive(on){
+  els.liveDot.className = "dot " + (on?"live":"off");
+  els.liveLabel.textContent = on ? "監視中" : "停止中";
+}
+function setCooldownIndicator(on){
+  els.liveDot.className = "dot " + (on?"cool":"live");
+}
+
+function updateClock(){
+  const d = new Date();
+  els.clock.textContent = d.toLocaleTimeString("ja-JP",{hour12:false}) + "." +
+    String(d.getMilliseconds()).padStart(3,"0");
+}
+
+function captureThumbFrame(){
+  if(video.readyState < 2) return;
+  sctx.drawImage(video, 0,0, sc.width, sc.height);
+  const url = sc.toDataURL("image/jpeg", 0.55);
+  const now = Date.now();
+  frameBuf.push({t:now, url});
+  while(frameBuf.length && now - frameBuf[0].t > BUFFER_MS) frameBuf.shift();
+}
+
+function loop(){
+  if(video.readyState >= 2){
+    actx.drawImage(video, 0,0, ac.width, ac.height);
+    analyzeFrame();
+  }
+  requestAnimationFrame(loop);
+}
+
+function analyzeFrame(){
+  const w = ac.width, h = ac.height;
+  const bandFrac = detectCfg.band/100;
+  const bw = Math.max(2, Math.round(w*bandFrac));
+  const x0 = Math.round(w/2 - bw/2);
+  const img = actx.getImageData(x0, 0, bw, h).data;
+
+  // グレースケール配列を作成
+  const gray = new Uint8ClampedArray(bw*h);
+  for(let i=0, p=0; i<img.length; i+=4, p++){
+    gray[p] = (img[i]*0.299 + img[i+1]*0.587 + img[i+2]*0.114);
+  }
+
+  if(!baseline || baseline.length !== gray.length){
+    baseline = gray; return;
+  }
+
+  let diffSum = 0;
+  for(let i=0;i<gray.length;i++){
+    diffSum += Math.abs(gray[i]-baseline[i]);
+  }
+  const avgDiff = diffSum / gray.length; // 0-255 程度のスケール
+
+  // baselineをゆっくり追従させる（明るさの揺らぎ吸収）。検知直後は更新を止める。
+  const now = performance.now();
+  const inCooldown = (now - lastDetectAt) < detectCfg.cool*1000;
+  if(!inCooldown){
+    for(let i=0;i<gray.length;i++){
+      baseline[i] = baseline[i]*0.85 + gray[i]*0.15;
+    }
+  }
+  setCooldownIndicator(inCooldown);
+
+  const threshold = detectCfg.sens; // 小さいほど敏感
+  if(armed && !inCooldown && avgDiff > threshold){
+    lastDetectAt = now;
+    onDetect();
+  }
+}
+
+/* ---------------- 検知時の処理 ---------------- */
+function flash(){
+  els.flashBox.style.transition = "none";
+  els.flashBox.style.opacity = "0.55";
+  requestAnimationFrame(()=>{
+    els.flashBox.style.transition = "opacity .4s";
+    els.flashBox.style.opacity = "0";
+  });
+}
+function beep(){
+  try{
+    const ctx2 = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ctx2.createOscillator(); const g = ctx2.createGain();
+    o.frequency.value = 1100; o.connect(g); g.connect(ctx2.destination);
+    g.gain.setValueAtTime(0.18, ctx2.currentTime);
+    o.start(); o.stop(ctx2.currentTime+0.12);
+  }catch(e){}
+  if(navigator.vibrate) navigator.vibrate(80);
+}
+
+function onDetect(){
+  const t = new Date();
+  flash(); beep();
+  const id = "r" + (++recIdSeed);
+  // バッファ済みの直近フレーム + 今後0.6秒分を追加収集
+  const photosBefore = frameBuf.slice(-4).map(f=>f.url);
+  const rec = {
+    id, mode:settings.mode, device:settings.deviceName, race:settings.raceName,
+    ts: t.getTime(), tsLabel: fmtTime(t),
+    bib:"", status:"pending", err:"", photos: photosBefore, selPhoto:0
+  };
+  records.unshift(rec);
+  saveLog();
+  renderLog();
+
+  // 検知後の追加フレームを少し待って取得
+  let collected = 0;
+  const grabber = setInterval(()=>{
+    if(frameBuf.length){
+      rec.photos.push(frameBuf[frameBuf.length-1].url);
+      if(rec.photos.length > 8) rec.photos.shift();
+    }
+    collected++;
+    if(collected>=4){ clearInterval(grabber); saveLog(); renderLog(); }
+  }, 160);
+}
+
+function fmtTime(d){
+  return d.toLocaleTimeString("ja-JP",{hour12:false}) + "." + String(d.getMilliseconds()).padStart(3,"0");
+}
+
+/* ---------------- ログ表示 ---------------- */
+function saveLog(){
+  // 保存容量を抑えるため写真は最新40件のみ完全保持、それより古い物は写真を間引く
+  const trimmed = records.map((r,i)=> i<40 ? r : Object.assign({}, r, {photos:r.photos.slice(0,1)}));
+  try{ localStorage.setItem(LS_LOG, JSON.stringify(trimmed)); }catch(e){}
+}
+
+function renderLog(){
+  els.cnt.textContent = records.length;
+  els.pendingCnt.textContent = records.filter(r=>r.status!=="sent").length;
+  els.log.innerHTML = "";
+  records.forEach(rec=>{
+    const card = document.createElement("div");
+    card.className = "card " + (rec.status==="sent"?"sent":rec.status==="error"?"error":"");
+
+    const thumbs = document.createElement("div");
+    thumbs.className = "thumbs";
+    const row1 = document.createElement("div"); row1.className = "thumbRow";
+    const row2 = document.createElement("div"); row2.className = "thumbRow";
+    rec.photos.forEach((url, idx)=>{
+      const img = document.createElement("img");
+      img.src = url;
+      if(idx === rec.selPhoto) img.classList.add("sel");
+      img.onclick = ()=>{ rec.selPhoto = idx; renderLog(); };
+      (idx<4?row1:row2).appendChild(img);
+    });
+    thumbs.appendChild(row1); if(rec.photos.length>4) thumbs.appendChild(row2);
+
+    const info = document.createElement("div");
+    info.className = "info";
+
+    const timeRow = document.createElement("div"); timeRow.className = "timeRow";
+    timeRow.innerHTML = `<span class="t">${rec.tsLabel}</span>
+      <span class="statusTag ${rec.status}">${statusLabel(rec.status)}</span>`;
+    info.appendChild(timeRow);
+
+    const bibRow = document.createElement("div"); bibRow.className = "bibRow";
+    const inp = document.createElement("input");
+    inp.type = "tel"; inp.inputMode = "numeric"; inp.placeholder = "Bib番号";
+    inp.value = rec.bib;
+    inp.oninput = ()=>{ rec.bib = inp.value.replace(/[^0-9]/g,""); inp.value = rec.bib; saveLog(); btn.disabled = !rec.bib; };
+    const btn = document.createElement("button");
+    btn.textContent = rec.status==="error" ? "再送信" : "送信";
+    btn.disabled = !rec.bib;
+    btn.onclick = ()=> sendRecord(rec);
+    bibRow.appendChild(inp); bibRow.appendChild(btn);
+    info.appendChild(bibRow);
+
+    if(rec.status==="error" && rec.err){
+      const e = document.createElement("div"); e.className = "errMsg"; e.textContent = rec.err;
+      info.appendChild(e);
+    }
+
+    const del = document.createElement("button"); del.className="delBtn"; del.textContent="削除";
+    del.onclick = ()=>{ if(confirm("この記録を削除しますか？")){ records = records.filter(r=>r.id!==rec.id); saveLog(); renderLog(); } };
+    info.appendChild(del);
+
+    card.appendChild(thumbs); card.appendChild(info);
+    els.log.appendChild(card);
+  });
+}
+function statusLabel(s){
+  return {pending:"未送信", sending:"送信中", sent:"送信済", error:"失敗"}[s] || s;
+}
+
+async function sendRecord(rec){
+  if(!rec.bib){ return; }
+  if(!settings.gasUrl){ rec.status="error"; rec.err="GAS URLが未設定です（設定画面から再起動して入力してください）"; renderLog(); return; }
+  rec.status = "sending"; rec.err=""; saveLog(); renderLog();
+  const payload = {
+    mode: rec.mode, device: rec.device, race: rec.race,
+    bib: rec.bib, timestamp: new Date(rec.ts).toISOString(),
+    timestampLabel: rec.tsLabel, deviceId: settings.deviceId
+  };
+  try{
+    const res = await fetch(settings.gasUrl, {
+      method:"POST",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify(payload)
+    });
+    const txt = await res.text();
+    let ok = res.ok;
+    try{ const j = JSON.parse(txt); if(j && j.ok===false) ok=false; if(j&&j.error) rec.err=j.error; }catch(e){}
+    if(ok){ rec.status = "sent"; }
+    else { rec.status = "error"; rec.err = rec.err || ("送信エラー (HTTP " + res.status + ")"); }
+  }catch(e){
+    rec.status = "error"; rec.err = "通信失敗: " + e.message + "（オフラインの可能性。後で再送信できます）";
+  }
+  saveLog(); renderLog();
+}
+
+// オンライン復帰時にエラー分を自動再送信
+window.addEventListener("online", ()=>{
+  records.filter(r=>r.status==="error" && r.bib).forEach(sendRecord);
+});
+setInterval(()=>{
+  if(navigator.onLine){
+    records.filter(r=>r.status==="error" && r.bib).forEach(sendRecord);
+  }
+}, 15000);
+
+/* ---------------- 監視ON/OFF・設定パネル ---------------- */
+els.armBtn.onclick = ()=>{
+  armed = !armed;
+  els.armBtn.classList.toggle("armed", armed);
+  els.armBtn.textContent = armed ? "監視ON" : "監視OFF";
+  setLive(armed);
+};
+els.menuBtn.onclick = ()=> els.settings.classList.add("open");
+els.closeSettings.onclick = ()=> els.settings.classList.remove("open");
+
+function paintCfg(){
+  els.sens.value = detectCfg.sens; els.sensVal.textContent = detectCfg.sens;
+  els.cool.value = detectCfg.cool; els.coolVal.textContent = detectCfg.cool + "秒";
+  els.band.value = detectCfg.band; els.bandVal.textContent = detectCfg.band + "%";
+}
+[["sens",v=>v],["cool",v=>v+"秒"],["band",v=>v+"%"]].forEach(([key,fmt])=>{
+  els[key].oninput = ()=>{
+    detectCfg[key] = Number(els[key].value);
+    els[key+"Val"].textContent = fmt(detectCfg[key]);
+    localStorage.setItem("gateTimerCfg_v1", JSON.stringify(detectCfg));
+    if(key==="band") drawOverlayLine();
+  };
+});
+paintCfg();
+
+renderLog();
+els.placeLabel.textContent = settings.deviceName || (settings.mode==="START"?"スタート":"フィニッシュ");
+
+})();
+</script>
+</body>
+</html>
