@@ -454,19 +454,20 @@ function analyzeFrame(){
   }
   const avgDiff = diffSum / gray.length; // 0-255 程度のスケール
 
-  // baselineをゆっくり追従させる（明るさの揺らぎ吸収）。検知直後は更新を止める。
+  // baselineは常にゆっくり追従させる（明るさ・反射などの環境変化を吸収）。
+  // クールダウン中だけ止めると、その間の環境変化が積み残ってクールダウン明け直後に
+  // 誤検知する原因になるため、常時更新する。
   const now = performance.now();
   const inCooldown = (now - lastDetectAt) < detectCfg.cool*1000;
-  if(!inCooldown){
-    for(let i=0;i<gray.length;i++){
-      baseline[i] = baseline[i]*0.85 + gray[i]*0.15;
-    }
+  for(let i=0;i<gray.length;i++){
+    baseline[i] = baseline[i]*0.85 + gray[i]*0.15;
   }
   setCooldownIndicator(inCooldown);
 
   const threshold = detectCfg.sens; // 小さいほど敏感
   if(armed && !inCooldown && avgDiff > threshold){
     lastDetectAt = now;
+    baseline = gray.slice(); // 検知の瞬間の映像にbaselineを即座にスナップし、再開直後の誤検知を防ぐ
     onDetect();
   }
 }
