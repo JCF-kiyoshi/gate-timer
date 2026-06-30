@@ -149,6 +149,15 @@
     background:var(--panel2); color:var(--text); font-size:14px;
   }
   .smallNote{font-size:11px; color:var(--sub); line-height:1.6; margin-top:4px;}
+  #gasUrlStatus{font-family:var(--mono); word-break:break-all; white-space:pre-wrap; background:var(--panel2);
+    border:1px solid var(--edge); border-radius:8px; padding:8px 10px; margin-top:6px;}
+  #gasUrlStatus.ok{color:var(--ok); border-color:#1c3a2e;}
+  #gasUrlStatus.bad{color:var(--err); border-color:#3a1c1c;}
+  #settingsPanel .field label{display:block; font-size:12px; color:var(--sub); margin-bottom:6px; letter-spacing:.03em;}
+  #settingsPanel .field input[type=url]{
+    width:100%; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+    padding:13px 12px; border-radius:10px; font-size:16px; outline:none;
+  }
 </style>
 </head>
 <body>
@@ -180,7 +189,7 @@
 
     <div class="field">
       <label>GAS Web App URL (スプレッドシート書き込み先)</label>
-      <input type="url" id="gasUrl" placeholder="https://script.google.com/macros/s/AKfycbzzxsLhERk5IQFUyJjaN_9UP15Btd5n22VOt_gBh_1eXMkF4Kgiw_am3WW-p9-IBD-rFQ/exec">
+      <input type="url" id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec">
     </div>
 
     <div class="field">
@@ -216,6 +225,11 @@
 <div id="settings">
   <div id="settingsPanel">
     <h2>検知設定</h2>
+    <div class="field" style="margin-bottom:18px;">
+      <label>GAS Web App URL</label>
+      <input type="url" id="gasUrlEdit" placeholder="https://script.google.com/macros/s/AKfycbzzxsLhERk5IQFUyJjaN_9UP15Btd5n22VOt_gBh_1eXMkF4Kgiw_am3WW-p9-IBD-rFQ/exec">
+      <div class="smallNote" id="gasUrlStatus"></div>
+    </div>
     <div class="row"><span>検知感度（低いほど敏感）</span><span class="val" id="sensVal"></span></div>
     <input type="range" id="sens" min="4" max="60" step="1">
     <div class="row" style="margin-top:18px;"><span>クールダウン（連続検知防止）</span><span class="val" id="coolVal"></span></div>
@@ -253,7 +267,8 @@ const els = {};
 ["video","overlay","clock","liveDot","liveLabel","armBtn","menuBtn",
  "log","cnt","pendingCnt","placeLabel","flashBox",
  "setup","modeSeg","raceName","deviceName","gasUrl","camPick","startBtn",
- "settings","settingsPanel","sens","sensVal","cool","coolVal","band","bandVal","closeSettings"
+ "settings","settingsPanel","sens","sensVal","cool","coolVal","band","bandVal","closeSettings",
+ "gasUrlEdit","gasUrlStatus"
 ].forEach(id=> els[id]=document.getElementById(id));
 
 if(!settings.deviceId){ settings.deviceId = "dev_" + Math.random().toString(36).slice(2,9); }
@@ -309,7 +324,7 @@ async function listCams(){
 els.startBtn.onclick = async ()=>{
   settings.raceName = els.raceName.value.trim();
   settings.deviceName = els.deviceName.value.trim() || (settings.mode==="START"?"スタート":"フィニッシュ");
-  settings.gasUrl = els.gasUrl.value.trim();
+  settings.gasUrl = els.gasUrl.value.replace(/[\s\u3000]/g,"");
   localStorage.setItem(LS_KEY, JSON.stringify(settings));
   els.setup.style.display = "none";
   els.placeLabel.textContent = settings.deviceName;
@@ -604,8 +619,39 @@ els.armBtn.onclick = ()=>{
   els.armBtn.textContent = armed ? "監視ON" : "監視OFF";
   setLive(armed);
 };
-els.menuBtn.onclick = ()=> els.settings.classList.add("open");
+els.menuBtn.onclick = ()=>{
+  els.gasUrlEdit.value = settings.gasUrl || "";
+  paintGasUrlStatus();
+  els.settings.classList.add("open");
+};
 els.closeSettings.onclick = ()=> els.settings.classList.remove("open");
+
+function paintGasUrlStatus(){
+  const url = settings.gasUrl || "";
+  if(!url){
+    els.gasUrlStatus.textContent = "未設定です。上の欄にURLを貼り付けると自動保存されます。";
+    els.gasUrlStatus.className = "";
+    return;
+  }
+  const issues = [];
+  if(/\s/.test(url)) issues.push("空白または改行が含まれています");
+  if(!/^https:\/\/script\.google\.com\/macros\/s\//.test(url)) issues.push("先頭が https://script.google.com/macros/s/ で始まっていません");
+  if(!/\/exec$/.test(url)) issues.push("末尾が /exec で終わっていません");
+
+  if(issues.length){
+    els.gasUrlStatus.textContent = "保存中のURL（" + url.length + "文字）: " + url + "\n⚠ " + issues.join(" / ");
+    els.gasUrlStatus.className = "bad";
+  }else{
+    els.gasUrlStatus.textContent = "保存中のURL（" + url.length + "文字、形式OK）: " + url;
+    els.gasUrlStatus.className = "ok";
+  }
+}
+els.gasUrlEdit.addEventListener("input", ()=>{
+  settings.gasUrl = els.gasUrlEdit.value.replace(/[\s\u3000]/g,"");
+  if(els.gasUrlEdit.value !== settings.gasUrl) els.gasUrlEdit.value = settings.gasUrl;
+  localStorage.setItem(LS_KEY, JSON.stringify(settings));
+  paintGasUrlStatus();
+});
 
 function paintCfg(){
   els.sens.value = detectCfg.sens; els.sensVal.textContent = detectCfg.sens;
